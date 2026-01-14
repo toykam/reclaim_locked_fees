@@ -37,7 +37,7 @@ export default function RentReclaimDApp() {
 
   const checkWalletMatch = () => {
     if (!wallet || !publicAddress) return null;
-    return wallet.toBase58() === publicAddress;
+    return wallet.toString() === publicAddress;
   };
 
   const walletMatches = checkWalletMatch();
@@ -50,7 +50,7 @@ export default function RentReclaimDApp() {
         const resp = await window.solana.connect({ onlyIfTrusted: true });
         setWallet(resp.publicKey);
         setConnected(true);
-        setPublicAddress(wallet?.toBase58() ?? "")
+        setPublicAddress(wallet?.toString() ?? "")
       } catch (err) {
         setConnected(false);
       }
@@ -84,7 +84,7 @@ export default function RentReclaimDApp() {
   const handleAddressSubmit = () => {
     try {
       const pubkey = new PublicKey(addressInput.trim());
-      setPublicAddress(pubkey.toBase58());
+      setPublicAddress(pubkey.toString());
       setAddressInput('');
       setError('');
     } catch (err) {
@@ -107,11 +107,19 @@ export default function RentReclaimDApp() {
     setStatus('Scanning wallet for empty token accounts...');
 
     try {
-      const walletPubkey = new PublicKey(publicAddress);
-      const reclaimable = await detectReclaimableAccounts(
-        connection,
-        walletPubkey
-      );
+      // const walletPubkey = new PublicKey(publicAddress);
+      const response = await fetch("/api/scan-address", {
+        method: "POST",
+        body: JSON.stringify({
+          "pubkey": publicAddress
+        })
+      })
+
+      const data = await response.json()
+
+      const reclaimable = data.accounts as EmptyAccount[]
+
+      console.log("Reclaimables: ", reclaimable)
 
       setAccounts(reclaimable);
       const total = reclaimable.reduce((sum, a) => sum + a.lamports, 0) / 1e9;
@@ -136,7 +144,7 @@ export default function RentReclaimDApp() {
   };
 
   const selectAll = () => {
-    setSelectedAccounts(new Set(accounts.map((a) => a.address.toBase58())));
+    setSelectedAccounts(new Set(accounts.map((a) => a.address.toString())));
   };
 
   const deselectAll = () => {
@@ -160,7 +168,7 @@ export default function RentReclaimDApp() {
 
     try {
       const selectedAccountPubkeys = accounts.filter((a) =>
-        selectedAccounts.has(a.address.toBase58())
+        selectedAccounts.has(a.address.toString())
       );
 
       // Calculate total lamports and fee
@@ -232,7 +240,7 @@ export default function RentReclaimDApp() {
   };
 
   const selectedTotal = accounts
-    .filter((a) => selectedAccounts.has(a.address.toBase58()))
+    .filter((a) => selectedAccounts.has(a.address.toString()))
     .reduce((sum, a) => sum + a.lamports, 0) / 1e9;
 
   const feePercentage = 0.15;
@@ -241,7 +249,7 @@ export default function RentReclaimDApp() {
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(wallet?.toBase58() ?? "");
+      await navigator.clipboard.writeText(wallet?.toString() ?? "");
       toast.success('Address copied!');
       // setIsCopied(true);
       // setTimeout(() => setIsCopied(false), 2000); // Reset copied state after 2 seconds
@@ -253,7 +261,7 @@ export default function RentReclaimDApp() {
 
   const loadConnectedWallet = () => {
     if (wallet) {
-      setPublicAddress(wallet.toBase58());
+      setPublicAddress(wallet.toString());
       setError('');
     }
   };
@@ -272,7 +280,7 @@ export default function RentReclaimDApp() {
               <div className="text-sm">
                 <p className="text-gray-400">Connected:</p>
                 <p className="font-mono text-purple-300">
-                  {wallet?.toBase58().slice(0, 8)}...{wallet?.toBase58().slice(-8)}
+                  {wallet?.toString().slice(0, 8)}...{wallet?.toString().slice(-8)}
                 </p>
               </div>
               <button
@@ -324,7 +332,7 @@ export default function RentReclaimDApp() {
               onClick={loadConnectedWallet}
               className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition text-purple-300"
             >
-              Use Connected Wallet ({wallet?.toBase58().slice(0, 8)}...{wallet?.toBase58().slice(-8)})
+              Use Connected Wallet ({wallet?.toString().slice(0, 8)}...{wallet?.toString().slice(-8)})
             </button>
           )}
         </div>
@@ -404,7 +412,7 @@ export default function RentReclaimDApp() {
                 <div>
                   <p className="font-semibold text-yellow-200 mb-2">Wallet Mismatch</p>
                   <p className="text-sm text-yellow-100 mb-3">
-                    You are scanning <span className="font-mono">{publicAddress.slice(0, 8)}...{publicAddress.slice(-8)}</span> but connected to <span className="font-mono">{wallet?.toBase58().slice(0, 8)}...{wallet?.toBase58().slice(-8)}</span>
+                    You are scanning <span className="font-mono">{publicAddress.slice(0, 8)}...{publicAddress.slice(-8)}</span> but connected to <span className="font-mono">{wallet?.toString().slice(0, 8)}...{wallet?.toString().slice(-8)}</span>
                   </p>
                   <p className="text-sm text-yellow-100">
                     To claim SOL, please connect the wallet that matches the scanned address.
@@ -501,23 +509,23 @@ export default function RentReclaimDApp() {
 
                       return (
                         <div
-                          key={account.address.toBase58()}
+                          key={account.address.toString()}
                           className={`p-4 border-b border-slate-700 last:border-b-0 hover:bg-slate-700 transition cursor-pointer flex items-center gap-3 ${
                             isUnknown ? 'opacity-75' : ''
                           }`}
-                          onClick={() => toggleSelectAccount(account.address.toBase58())}
+                          onClick={() => toggleSelectAccount(account.address.toString())}
                           title={isUnknown ? `Program: ${account.programId}\n⚠️ Unknown program - use with caution` : ''}
                         >
                           <input
                             type="checkbox"
-                            checked={selectedAccounts.has(account.address.toBase58())}
+                            checked={selectedAccounts.has(account.address.toString())}
                             onChange={() => {}}
                             className="w-5 h-5 rounded cursor-pointer"
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="font-mono text-sm text-gray-400 truncate">
-                                {account.address.toBase58()}
+                                {account.address.toString()}
                               </p>
                               {isUnknown && (
                                 <span className="text-xs bg-red-900 text-red-200 px-2 py-1 rounded whitespace-nowrap">
