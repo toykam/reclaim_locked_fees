@@ -14,6 +14,7 @@ interface EmptyAccount {
   executable: boolean;
   rentEpoch: number;
   type: string;
+  programId: string
 }
 
 export default function RentReclaimDApp() {
@@ -38,6 +39,8 @@ export default function RentReclaimDApp() {
     if (!wallet || !publicAddress) return null;
     return wallet.toBase58() === publicAddress;
   };
+
+  const walletMatches = checkWalletMatch();
 
   
 
@@ -247,6 +250,14 @@ export default function RentReclaimDApp() {
     }
   };
 
+
+  const loadConnectedWallet = () => {
+    if (wallet) {
+      setPublicAddress(wallet.toBase58());
+      setError('');
+    }
+  };
+
   return (
      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-6">
       <div className="max-w-4xl mx-auto">
@@ -260,7 +271,7 @@ export default function RentReclaimDApp() {
             <div className="flex items-center gap-3">
               <div className="text-sm">
                 <p className="text-gray-400">Connected:</p>
-                <p className="font-mono text-purple-300" onClick={copyToClipboard}>
+                <p className="font-mono text-purple-300">
                   {wallet?.toBase58().slice(0, 8)}...{wallet?.toBase58().slice(-8)}
                 </p>
               </div>
@@ -290,7 +301,7 @@ export default function RentReclaimDApp() {
           <label className="block text-sm font-semibold text-gray-300 mb-3">
             Enter Solana Address to Scan
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-3">
             <input
               type="text"
               value={addressInput}
@@ -307,6 +318,15 @@ export default function RentReclaimDApp() {
               Load Address
             </button>
           </div>
+          
+          {connected && (
+            <button
+              onClick={loadConnectedWallet}
+              className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition text-purple-300"
+            >
+              Use Connected Wallet ({wallet?.toBase58().slice(0, 8)}...{wallet?.toBase58().slice(-8)})
+            </button>
+          )}
         </div>
 
         {/* Current Address Display */}
@@ -316,12 +336,21 @@ export default function RentReclaimDApp() {
               <p className="text-sm text-gray-400">Scanning Address:</p>
               <p className="font-mono text-purple-300">{publicAddress}</p>
             </div>
-            <button
-              onClick={clearAddress}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition"
-            >
-              Clear
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => copyToClipboard()}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition"
+                title="Copy address"
+              >
+                📋 Copy
+              </button>
+              <button
+                onClick={clearAddress}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         )}
 
@@ -369,7 +398,7 @@ export default function RentReclaimDApp() {
             )}
 
             {/* Wallet Mismatch Warning */}
-            {connected && publicAddress && !checkWalletMatch() && (
+            {connected && publicAddress && !walletMatches && (
               <div className="bg-yellow-900 border border-yellow-700 rounded-lg p-4 flex gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-yellow-400" />
                 <div>
@@ -449,37 +478,79 @@ export default function RentReclaimDApp() {
                 {/* Account List */}
                 <div className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
                   <div className="overflow-y-auto max-h-96">
-                    {accounts.map((account) => (
-                      <div
-                        key={account.address.toBase58()}
-                        className="p-4 border-b border-slate-700 last:border-b-0 hover:bg-slate-700 transition cursor-pointer flex items-center gap-3"
-                        onClick={() => toggleSelectAccount(account.address.toBase58())}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedAccounts.has(account.address.toBase58())}
-                          onChange={() => {}}
-                          className="w-5 h-5 rounded cursor-pointer"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-mono text-sm text-gray-400 truncate">
-                            {account.address.toBase58()}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Rent: {(account.lamports / 1e9).toFixed(6)} SOL
-                          </p>
+                    {accounts.map((account) => {
+                      const typeColors: Record<string, string> = {
+                        token: 'bg-blue-900 text-blue-200',
+                        nft: 'bg-purple-900 text-purple-200',
+                        'associated-token': 'bg-cyan-900 text-cyan-200',
+                        metadata: 'bg-pink-900 text-pink-200',
+                        unknown: 'bg-red-900 text-red-200',
+                      };
+
+                      const typeLabels: Record<string, string> = {
+                        token: 'Token',
+                        nft: 'NFT',
+                        'associated-token': 'ATA',
+                        metadata: 'Metadata',
+                        unknown: 'Unknown',
+                      };
+
+                      const color = typeColors[account.type] || typeColors.unknown;
+                      const label = typeLabels[account.type] || 'Unknown';
+                      const isUnknown = account.type === 'unknown';
+
+                      return (
+                        <div
+                          key={account.address.toBase58()}
+                          className={`p-4 border-b border-slate-700 last:border-b-0 hover:bg-slate-700 transition cursor-pointer flex items-center gap-3 ${
+                            isUnknown ? 'opacity-75' : ''
+                          }`}
+                          onClick={() => toggleSelectAccount(account.address.toBase58())}
+                          title={isUnknown ? `Program: ${account.programId}\n⚠️ Unknown program - use with caution` : ''}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedAccounts.has(account.address.toBase58())}
+                            onChange={() => {}}
+                            className="w-5 h-5 rounded cursor-pointer"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-mono text-sm text-gray-400 truncate">
+                                {account.address.toBase58()}
+                              </p>
+                              {isUnknown && (
+                                <span className="text-xs bg-red-900 text-red-200 px-2 py-1 rounded whitespace-nowrap">
+                                  ⚠️ Unknown
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>
+                                {label}
+                              </span>
+                              {isUnknown && (
+                                <span className="font-mono text-gray-600 text-xs truncate">
+                                  {account.programId.slice(0, 8)}...
+                                </span>
+                              )}
+                              <span className="text-gray-600">
+                                {(account.lamports / 1e9).toFixed(6)} SOL
+                              </span>
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Reclaim Button */}
                 <button
                   onClick={reclaimSOL}
-                  disabled={loading || selectedAccounts.size === 0 || !connected || !checkWalletMatch}
+                  disabled={loading || selectedAccounts.size === 0 || !connected || !walletMatches}
                   className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg font-semibold transition flex items-center justify-center gap-2"
-                  title={!connected ? 'Connect wallet to claim' : !checkWalletMatch ? 'Connected wallet must match scanned address' : selectedAccounts.size === 0 ? 'Select accounts to claim' : ''}
+                  title={!connected ? 'Connect wallet to claim' : !walletMatches ? 'Connected wallet must match scanned address' : selectedAccounts.size === 0 ? 'Select accounts to claim' : ''}
                 >
                   {loading ? (
                     <>

@@ -1,0 +1,2 @@
+1. validate address submited is a solana wallet address
+2. fix the error message

@@ -2,12 +2,13 @@ import { Connection, PublicKey, AccountInfo } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 interface EmptyAccount {
-  address: PublicKey;
-  lamports: number;
-  owner: PublicKey;
-  executable: boolean;
-  rentEpoch: number;
-  type: 'token' | 'nft' | 'associated-token' | 'metadata' | 'other';
+    address: PublicKey;
+    lamports: number;
+    owner: PublicKey;
+    executable: boolean;
+    rentEpoch: number;
+    type: 'token' | 'nft' | 'associated-token' | 'metadata' | 'other' | 'unknown';
+    programId: string;
 }
 
 /**
@@ -41,6 +42,7 @@ export async function detectReclaimableAccounts(
           executable: account.account.executable,
           rentEpoch: account.account.rentEpoch ?? 0,
           type: 'token',
+          programId: TOKEN_PROGRAM_ID.toBase58()
         });
       }
       if (reclaimableAccounts.length % 50 === 0) {
@@ -67,6 +69,7 @@ export async function detectReclaimableAccounts(
           a.address.equals(account.pubkey)
         );
         if (!isAlreadyIncluded) {
+            const programId = account.account.owner.toBase58();
           reclaimableAccounts.push({
             address: account.pubkey,
             lamports: account.account.lamports,
@@ -74,6 +77,7 @@ export async function detectReclaimableAccounts(
             executable: account.account.executable,
             rentEpoch: account.account.rentEpoch ?? 0,
             type: 'nft',
+            programId
           });
         }
       }
@@ -105,6 +109,7 @@ export async function detectReclaimableAccounts(
           a.address.equals(account.pubkey)
         );
         if (!isAlreadyIncluded) {
+            const programId = account.account.owner.toBase58();
           reclaimableAccounts.push({
             address: account.pubkey,
             lamports: account.account.lamports,
@@ -112,6 +117,7 @@ export async function detectReclaimableAccounts(
             executable: account.account.executable,
             rentEpoch: account.account.rentEpoch ?? 0,
             type: 'associated-token',
+            programId
           });
         }
       }
@@ -170,6 +176,41 @@ export async function detectReclaimableAccounts(
         // Add logic to detect unused accounts created by other programs
       }
     }
+
+    // 7 Scan all other programs owned by the wallet
+    console.log('Scanning for accounts from all programs...');
+      const allProgramAccounts = await connection.getProgramAccounts(walletAddress);
+
+      for (const account of allProgramAccounts) {
+        // Skip if already added from token program
+        const isAlreadyIncluded = reclaimableAccounts.some(a =>
+          a.address.equals(account.pubkey)
+        );
+
+        if (!isAlreadyIncluded && account.account.lamports > 0) {
+          // Determine account type
+          let type = 'unknown';
+          const programId = account.account.owner.toBase58();
+
+          if (programId === TOKEN_PROGRAM_ID.toBase58()) {
+            type = 'token';
+          } else if (programId === 'ATokenGPvbdGVqstVQmcLsNZAqeEbtQaMy63xtto2CXv') {
+            type = 'associated-token';
+          } else if (programId === 'metaqbxxUerdq28cj1RbAqWwTRiWLMsqLoea1PgurZ') {
+            type = 'metadata';
+          }
+
+          reclaimableAccounts.push({
+            address: account.pubkey,
+            lamports: account.account.lamports,
+            owner: account.account.owner,
+            executable: account.account.executable,
+            rentEpoch: account.account.rentEpoch ?? 0,
+            type: "unknown",
+            programId
+          });
+        }
+      }
 
     return reclaimableAccounts;
   } catch (error) {
