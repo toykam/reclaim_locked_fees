@@ -42,7 +42,7 @@ export async function detectReclaimableAccounts(
           executable: account.account.executable,
           rentEpoch: account.account.rentEpoch ?? 0,
           type: 'token',
-          programId: TOKEN_PROGRAM_ID.toBase58()
+          programId: TOKEN_PROGRAM_ID.toString()
         });
       }
       if (reclaimableAccounts.length % 50 === 0) {
@@ -69,7 +69,7 @@ export async function detectReclaimableAccounts(
           a.address.equals(account.pubkey)
         );
         if (!isAlreadyIncluded) {
-            const programId = account.account.owner.toBase58();
+            const programId = account.account.owner.toString();
           reclaimableAccounts.push({
             address: account.pubkey,
             lamports: account.account.lamports,
@@ -96,7 +96,7 @@ export async function detectReclaimableAccounts(
           {
             memcmp: {
               offset: 32, // owner offset in ATA
-              bytes: walletAddress.toBase58(),
+              bytes: walletAddress.toString(),
             },
           },
         ],
@@ -109,7 +109,7 @@ export async function detectReclaimableAccounts(
           a.address.equals(account.pubkey)
         );
         if (!isAlreadyIncluded) {
-            const programId = account.account.owner.toBase58();
+            const programId = account.account.owner.toString();
           reclaimableAccounts.push({
             address: account.pubkey,
             lamports: account.account.lamports,
@@ -136,7 +136,7 @@ export async function detectReclaimableAccounts(
     //       {
     //         memcmp: {
     //           offset: 0,
-    //           bytes: walletAddress.toBase58(),
+    //           bytes: walletAddress.toString(),
     //         },
     //       },
     //     ],
@@ -190,9 +190,9 @@ export async function detectReclaimableAccounts(
         if (!isAlreadyIncluded && account.account.lamports > 0) {
           // Determine account type
           let type = 'unknown';
-          const programId = account.account.owner.toBase58();
+          const programId = account.account.owner.toString();
 
-          if (programId === TOKEN_PROGRAM_ID.toBase58()) {
+          if (programId === TOKEN_PROGRAM_ID.toString()) {
             type = 'token';
           } else if (programId === 'ATokenGPvbdGVqstVQmcLsNZAqeEbtQaMy63xtto2CXv') {
             type = 'associated-token';
@@ -275,6 +275,6 @@ export async function exampleUsage() {
 
   // Log details
   significantAccounts.forEach((account) => {
-    console.log(`Account: ${account.address.toBase58()}, Lamports: ${account.lamports}`);
+    console.log(`Account: ${account.address.toString()}, Lamports: ${account.lamports}`);
   });
 }
