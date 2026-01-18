@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { createCloseAccountInstruction } from '@solana/spl-token';
 import { Wallet, AlertCircle, Loader, CheckCircle, Send } from 'lucide-react';
 import { detectReclaimableAccounts } from '@/lib/detection-logic';
@@ -38,7 +38,7 @@ export default function RentReclaimDApp() {
 
   const checkWalletMatch = () => {
     if (!wallet || !publicAddress) return null;
-    return wallet.toString() === publicAddress;
+    return wallet.equals(new PublicKey(publicAddress));
   };
 
   const walletMatches = checkWalletMatch();
@@ -179,117 +179,130 @@ export default function RentReclaimDApp() {
   };
 
 
-  const reclaimSOL = async () => {
-    if (!wallet || !connected) {
-      setError('Please connect your wallet first to claim SOL');
-      return;
-    }
+const reclaimSOL = async () => {
+  if (!wallet || !connected) {
+    setError('Please connect your wallet first to claim SOL');
+    return;
+  }
 
-    if (wallet.toString() !== publicAddress) {
-      setError('Connected wallet must match the scanned address to claim. Please connect the correct wallet.');
-      return;
-    }
+  if (!wallet.equals(new PublicKey(publicAddress))) {
+    setError(
+      'Connected wallet must match the scanned address to claim. Please connect the correct wallet.'
+    );
+    return;
+  }
 
-    if (selectedAccounts.size === 0) {
-      setError('Please select at least one account');
-      return;
-    }
+  if (selectedAccounts.size === 0) {
+    setError('Please select at least one account');
+    return;
+  }
 
-    setLoading(true);
-    setError('');
-    setStatus('Preparing transaction...');
+  setLoading(true);
+  setError('');
+  setStatus('Preparing transaction...');
 
-    try {
-      const selectedAccountPubkeys = accounts.filter((a) =>
-        selectedAccounts.has(a.address.toString())
+  try {
+    const selectedAccountsList = accounts.filter((a) =>
+      selectedAccounts.has(a.address.toString())
+    );
+
+    const totalLamports = selectedAccountsList.reduce(
+      (sum, a) => sum + a.lamports,
+      0
+    );
+
+    const feeLamports = Math.floor(totalLamports * 0.15);
+    const feeRecipient = new PublicKey(
+      process.env.NEXT_PUBLIC_FEE_RECIPIENT!
+    );
+
+    const instructions: TransactionInstruction[] = [];
+
+    // 1️⃣ Close empty token accounts
+    for (const account of selectedAccountsList) {
+      const accountPubKey = new PublicKey(account.address);
+      instructions.push(
+        createCloseAccountInstruction(
+          accountPubKey, // account to close
+          wallet,          // destination (rent refunded here)
+          wallet           // authority
+        )
       );
+    }
 
-      const totalLamports = selectedAccountPubkeys.reduce((sum, a) => sum + a.lamports, 0);
-      const feeLamports = Math.floor(totalLamports * 0.15);
-      const FEE_RECIPIENT = new PublicKey(process.env.NEXT_PUBLIC_FEE_RECIPIENT ?? "");
+    // 2️⃣ Transfer service fee safely
+    if (feeLamports > 0) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: wallet,
+          toPubkey: feeRecipient,
+          lamports: feeLamports,
+        })
+      );
+    }
 
-      const instructions = [];
-      for (const account of selectedAccountPubkeys) {
-        const instruction = createCloseAccountInstruction(
-          account.address,
-          wallet,
-          wallet
-        );
-        instructions.push(instruction);
-      }
+    // 3️⃣ Build transaction
+    const { blockhash, lastValidBlockHeight } =
+      await connection.getLatestBlockhash();
 
-      const feeBuffer = Buffer.alloc(8);
-      feeBuffer.writeUInt32LE(feeLamports >>> 0, 0);
-      feeBuffer.writeUInt32LE(Math.floor(feeLamports / 0x100000000), 4);
-      
-      instructions.push({
-        keys: [
-          { pubkey: wallet, isSigner: true, isWritable: true },
-          { pubkey: FEE_RECIPIENT, isSigner: false, isWritable: true },
-        ],
-        programId: new PublicKey('11111111111111111111111111111111'),
-        data: Buffer.concat([Buffer.from([2, 0, 0, 0]), feeBuffer]),
-      } as any);
+    const transaction = new Transaction({
+      feePayer: wallet,
+      recentBlockhash: blockhash,
+    });
 
-      const { blockhash } = await connection.getLatestBlockhash();
+    transaction.add(...instructions);
 
-      const transaction = new Transaction({
-        recentBlockhash: blockhash,
-        feePayer: wallet,
-      });
+    // 4️⃣ Simulate before signing (huge UX + safety win)
+    const simulation = await connection.simulateTransaction(transaction);
+    if (simulation.value.err) {
+      console.error('Simulation error:', simulation.value.err);
+      throw new Error('Transaction simulation failed');
+    }
 
-      transaction.add(...instructions);
+    setStatus('Waiting for wallet signature...');
+    const signedTx = await window.solana.signTransaction(transaction);
 
-      setStatus('Waiting for wallet signature...');
-      const signedTx = await window.solana.signTransaction(transaction);
-      
-      setStatus('Sending transaction...');
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    setStatus('Sending transaction...');
+    const signature = await connection.sendRawTransaction(
+      signedTx.serialize(),
+      {
         skipPreflight: false,
         maxRetries: 5,
-      });
-
-      setStatus('Confirming transaction...');
-      
-      let confirmed = false;
-      
-      for (let i = 0; i < 60; i++) {
-        try {
-          const status = await connection.getSignatureStatus(signature);
-          if (status && status.value) {
-            const confirmationStatus = status.value.confirmationStatus;
-            if (confirmationStatus === 'confirmed' || confirmationStatus === 'finalized') {
-              confirmed = true;
-              break;
-            }
-          }
-        } catch (err) {
-          console.log('Polling transaction status...');
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
       }
+    );
 
-      const selectedTotal = totalLamports / 1e9;
-      const feeTotal = feeLamports / 1e9;
-      const netTotal = (totalLamports - feeLamports) / 1e9;
-      
-      if (confirmed) {
-        setStatus(`✅ Success! Reclaimed ${selectedTotal.toFixed(4)} SOL (Net: ${netTotal.toFixed(4)} SOL). Fee: ${feeTotal.toFixed(4)} SOL. Tx: ${signature.slice(0, 20)}...`);
-      } else {
-        setStatus(`✅ Transaction submitted! Tx: ${signature.slice(0, 20)}...\nCheck Solscan for final confirmation status.`);
-      }
-      
-      setSelectedAccounts(new Set());
-      setAccounts([]);
-      setTotalSOL(0);
-    } catch (err) {
-      setError('Transaction failed: ' + (err as Error).message);
-      setStatus('');
-    } finally {
-      setLoading(false);
-    }
-  };
+    setStatus('Confirming transaction...');
 
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      },
+      'confirmed'
+    );
+
+    const totalSOL = totalLamports / 1e9;
+    const feeSOL = feeLamports / 1e9;
+    const netSOL = (totalLamports - feeLamports) / 1e9;
+
+    setStatus(
+      `✅ Success! Reclaimed ${totalSOL.toFixed(4)} SOL (Net: ${netSOL.toFixed(
+        4
+      )} SOL). Fee: ${feeSOL.toFixed(4)} SOL.\nTx: ${signature.slice(0, 20)}...`
+    );
+
+    setSelectedAccounts(new Set());
+    setAccounts([]);
+    setTotalSOL(0);
+  } catch (err) {
+    console.error(err);
+    setError('Transaction failed: ' + (err as Error).message);
+    setStatus('');
+  } finally {
+    setLoading(false);
+  }
+};
   const selectedTotal = accounts
     .filter((a) => selectedAccounts.has(a.address.toString()))
     .reduce((sum, a) => sum + a.lamports, 0) / 1e9;
